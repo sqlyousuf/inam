@@ -1,6 +1,6 @@
 import { get } from '@vercel/blob';
 import { db } from '@/lib/db';
-import { HttpError, blobAccess, deleteBlobs, requireUser, run, uuid } from '@/lib/api';
+import { HttpError, blobAccess, blobToken, deleteBlobs, requireUser, run, uuid } from '@/lib/api';
 
 type Params = { params: Promise<{ id: string }> };
 
@@ -14,7 +14,7 @@ export async function GET(_req: Request, { params }: Params) {
     if (!rows.length) throw new HttpError(404, 'File not found');
     const file = rows[0];
 
-    const result = await get(file.blob_url, { access: blobAccess() });
+    const result = await get(file.blob_url, { access: blobAccess(), token: blobToken() });
     if (!result || result.statusCode !== 200) throw new HttpError(404, 'File is missing from storage');
 
     const encoded = encodeURIComponent(file.name);

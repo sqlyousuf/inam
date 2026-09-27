@@ -47,6 +47,14 @@ export async function readJson(req: Request): Promise<Record<string, unknown>> {
   }
 }
 
+/** Finds the Blob read-write token, including prefixed names like STORAGE_READ_WRITE_TOKEN. */
+export function blobToken() {
+  const env = process.env;
+  if (env.BLOB_READ_WRITE_TOKEN) return env.BLOB_READ_WRITE_TOKEN;
+  const key = Object.keys(env).find((k) => k.endsWith('_READ_WRITE_TOKEN') && env[k]?.startsWith('vercel_blob_rw_'));
+  return key ? env[key] : undefined;
+}
+
 export function blobAccess(): 'private' | 'public' {
   return process.env.BLOB_ACCESS === 'public' ? 'public' : 'private';
 }
@@ -56,7 +64,7 @@ export async function deleteBlobs(rows: Record<string, unknown>[]) {
   const urls = rows.map((row) => row.blob_url as string).filter(Boolean);
   if (!urls.length) return;
   try {
-    await del(urls);
+    await del(urls, { token: blobToken() });
   } catch (error) {
     console.error('Failed to delete blobs', error);
   }

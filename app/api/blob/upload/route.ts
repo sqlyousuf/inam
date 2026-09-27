@@ -1,35 +1,39 @@
-import { handleUpload, type HandleUploadBody } from '@vercel/blob/client';
-import { getUser } from '@/lib/auth';
+import { generateClientTokenFromReadWriteToken } from '@vercel/blob/client';
 import { db } from '@/lib/db';
-import { uuid } from '@/lib/api';
+import { HttpError, blobToken, readJson, requireUser, run, uuid } from '@/lib/api';
 
 /**
- * Issues short-lived tokens so the browser can upload files straight to Vercel Blob
+ * Issues a short-lived token so the browser can upload one file straight to Vercel Blob
  * (this avoids the 4.5 MB request limit on Vercel functions).
  */
 export async function POST(req: Request) {
-  const body = (await req.json()) as HandleUploadBody;
-  try {
-    const result = await handleUpload({
-      body,
-      request: req,
-      onBeforeGenerateToken: async (pathname, clientPayload) => {
-        const user = await getUser();
-        if (!user) throw new Error('Not signed in');
-        const pageId = uuid(clientPayload);
-        if (!pathname.startsWith(`${user.id}/${pageId}/`)) throw new Error('Invalid upload path');
-        const rows = await db()`select 1 from pages where id = ${pageId} and user_id = ${user.id}`;
-        if (!rows.length) throw new Error('Page not found');
-        return {
-          addRandomSuffix: true,
-          maximumSizeInBytes: Number(process.env.MAX_UPLOAD_MB || 100) * 1024 * 1024,
-        };
-      },
-      // The attachment is recorded by POST /api/attachments once the upload finishes.
-      onUploadCompleted: async () => {},
+  return run(async () => {
+    const user = await requireUser();
+    const body = await readJson(req);
+    const pageId = uuid(body.pageId);
+    const pathname = String(body.pathname ?? '');
+    if (!pathname.startsWith(`${user.id}/${pageId}/`)) throw new HttpError(400, 'Invalid upload path');
+
+    const token = blobToken();
+    if (!token) {
+      throw new HttpError(
+        500,
+        'File storage is not set up: BLOB_READ_WRITE_TOKEN is missing. In Vercel, open Storage, ' +
+          'connect your Blob store to this project (or copy its BLOB_READ_WRITE_TOKEN into ' +
+          'Settings → Environment Variables), then redeploy.',
+      );
+    }
+
+    const rows = await db()`select 1 from pages where id = ${pageId} and user_id = ${user.id}`;
+    if (!rows.length) throw new HttpError(404, 'Page not found');
+
+    const clientToken = await generateClientTokenFromReadWriteToken({
+      token,
+      pathname,
+      addRandomSuffix: true,
+      maximumSizeInBytes: Number(process.env.MAX_UPLOAD_MB || 100) * 1024 * 1024,
+      validUntil: Date.now() + 60 * 60 * 1000,
     });
-    return Response.json(result);
-  } catch (error) {
-    return Response.json({ error: (error as Error).message }, { status: 400 });
-  }
+    return Response.json({ clientToken });
+  });
 }

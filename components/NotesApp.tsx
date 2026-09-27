@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { upload } from '@vercel/blob/client';
+import { put } from '@vercel/blob/client';
 import Editor from './Editor';
 
 type Section = { id: string; name: string };
@@ -325,10 +325,14 @@ export default function NotesApp({ user, blobAccess }: Props) {
         const key = `${Date.now()}-${Math.random()}`;
         setUploads((list) => [...list, { key, name: file.name, percent: 0 }]);
         try {
-          const blob = await upload(`${user.id}/${targetId}/${safeFileName(file.name)}`, file, {
+          const pathname = `${user.id}/${targetId}/${safeFileName(file.name)}`;
+          const { clientToken } = await api<{ clientToken: string }>('/api/blob/upload', {
+            method: 'POST',
+            json: { pageId: targetId, pathname },
+          });
+          const blob = await put(pathname, file, {
             access: blobAccess,
-            handleUploadUrl: '/api/blob/upload',
-            clientPayload: targetId,
+            token: clientToken,
             multipart: file.size > 10 * 1024 * 1024,
             onUploadProgress: ({ percentage }) =>
               setUploads((list) => list.map((u) => (u.key === key ? { ...u, percent: Math.round(percentage) } : u))),

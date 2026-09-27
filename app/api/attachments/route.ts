@@ -1,6 +1,6 @@
 import { head } from '@vercel/blob';
 import { db } from '@/lib/db';
-import { HttpError, cleanName, readJson, requireUser, run, uuid } from '@/lib/api';
+import { HttpError, blobToken, cleanName, readJson, requireUser, run, uuid } from '@/lib/api';
 
 /** Records a file that the browser has just uploaded to Vercel Blob. */
 export async function POST(req: Request) {
@@ -11,7 +11,10 @@ export async function POST(req: Request) {
     const pathname = String(body.pathname ?? '');
     if (!pathname.startsWith(`${user.id}/${pageId}/`)) throw new HttpError(400, 'Invalid file');
 
-    const blob = await head(pathname).catch(() => null);
+    const blob = await head(pathname, { token: blobToken() }).catch((error) => {
+      console.error('Blob head failed', error);
+      return null;
+    });
     if (!blob) throw new HttpError(400, 'Uploaded file not found');
 
     const rows = await db()`
