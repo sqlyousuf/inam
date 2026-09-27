@@ -1,5 +1,5 @@
 import { del } from '@vercel/blob';
-import { getUser } from './auth';
+import { getUserAndRenew } from './auth';
 
 export class HttpError extends Error {
   constructor(public status: number, message: string) {
@@ -21,7 +21,7 @@ export async function run(fn: () => Promise<Response>) {
 }
 
 export async function requireUser() {
-  const user = await getUser();
+  const user = await getUserAndRenew();
   if (!user) throw new HttpError(401, 'Not signed in');
   return user;
 }

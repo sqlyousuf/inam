@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { EditorContent, useEditor, type Editor as TiptapEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
+import { NodeSelection, type EditorState } from '@tiptap/pm/state';
 import type { EditorView } from '@tiptap/pm/view';
 
 type Props = {
@@ -31,7 +32,65 @@ function replaceImage(view: EditorView, from: string, to: string | null) {
   if (tr.docChanged) view.dispatch(tr);
 }
 
+/** The image the user has clicked on, if any. */
+function selectedImage(state: EditorState) {
+  const { selection } = state;
+  if (selection instanceof NodeSelection && selection.node.type.name === 'image') {
+    return { src: String(selection.node.attrs.src), name: String(selection.node.attrs.alt || 'image') };
+  }
+  return null;
+}
+
+/** Loads an image and converts it to PNG, the one image type every clipboard accepts. */
+async function imageAsPng(src: string): Promise<Blob> {
+  const res = await fetch(src);
+  if (!res.ok) throw new Error('Could not load the image');
+  const blob = await res.blob();
+  if (blob.type === 'image/png') return blob;
+  const bitmap = await createImageBitmap(blob);
+  const canvas = document.createElement('canvas');
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  canvas.getContext('2d')!.drawImage(bitmap, 0, 0);
+  return new Promise((resolve, reject) =>
+    canvas.toBlob((png) => (png ? resolve(png) : reject(new Error('Could not convert the image'))), 'image/png'),
+  );
+}
+
+/** Puts the picture itself on the clipboard, so it pastes into any other app. */
+async function copyImage(src: string) {
+  if (!navigator.clipboard?.write || typeof ClipboardItem === 'undefined') {
+    throw new Error('This browser cannot copy images. Right-click the image and choose "Copy image" instead.');
+  }
+  // Passing the promise keeps the click's permission while the image loads.
+  await navigator.clipboard.write([new ClipboardItem({ 'image/png': imageAsPng(src) })]);
+}
+
+function downloadImage(src: string, name: string) {
+  // Pasted images live at /api/attachments/<id>?inline=1; without "inline" the server sends a download.
+  const stored = src.match(/^\/api\/attachments\/([0-9a-f-]{36})/i);
+  const link = document.createElement('a');
+  link.href = stored ? `/api/attachments/${stored[1]}` : src;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+}
+
 export default function Editor({ content, onChange, onImageUpload, onError }: Props) {
+  const [notice, setNotice] = useState('');
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(''), 2500);
+    return () => clearTimeout(t);
+  }, [notice]);
+
+  function copy(src: string) {
+    copyImage(src)
+      .then(() => setNotice('Image copied'))
+      .catch((error) => callbacks.current.onError(error));
+  }
+
   const callbacks = useRef({ onChange, onImageUpload, onError });
   useEffect(() => {
     callbacks.current = { onChange, onImageUpload, onError };
@@ -77,6 +136,16 @@ export default function Editor({ content, onChange, onImageUpload, onError }: Pr
         insertImages(view, files, pos);
         return true;
       },
+      handleDOMEvents: {
+        // Ctrl+C on a clicked image copies the picture, not just a link to it.
+        copy: (view, event) => {
+          const image = selectedImage(view.state);
+          if (!image) return false;
+          event.preventDefault();
+          copy(image.src);
+          return true;
+        },
+      },
     },
     onUpdate: ({ editor }) => {
       const html = editor.getHTML();
@@ -86,16 +155,30 @@ export default function Editor({ content, onChange, onImageUpload, onError }: Pr
   });
 
   if (!editor) return <div className="editor-loading" />;
+  const image = selectedImage(editor.state);
 
   return (
     <div className="editor">
-      <Toolbar editor={editor} />
+      <Toolbar editor={editor}>
+        {image && (
+          <>
+            <span className="tool-sep" />
+            <button type="button" className="tool image-tool" title="Copy image (Ctrl+C)" onMouseDown={(e) => e.preventDefault()} onClick={() => copy(image.src)}>
+              Copy image
+            </button>
+            <button type="button" className="tool image-tool" title="Download image" onMouseDown={(e) => e.preventDefault()} onClick={() => downloadImage(image.src, image.name)}>
+              Download image
+            </button>
+          </>
+        )}
+        {notice && <span className="tool-notice" role="status">{notice}</span>}
+      </Toolbar>
       <EditorContent editor={editor} className="editor-body" />
     </div>
   );
 }
 
-function Toolbar({ editor }: { editor: TiptapEditor }) {
+function Toolbar({ editor, children }: { editor: TiptapEditor; children?: React.ReactNode }) {
   const chain = () => editor.chain().focus();
   const buttons: { label: string; title: string; active?: boolean; run: () => void; className?: string }[] = [
     { label: 'B', title: 'Bold (Ctrl+B)', className: 'b', active: editor.isActive('bold'), run: () => chain().toggleBold().run() },
@@ -131,6 +214,7 @@ function Toolbar({ editor }: { editor: TiptapEditor }) {
       <span className="tool-sep" />
       <button type="button" className="tool" title="Undo (Ctrl+Z)" aria-label="Undo" disabled={!editor.can().undo()} onMouseDown={(e) => e.preventDefault()} onClick={() => chain().undo().run()}>↶</button>
       <button type="button" className="tool" title="Redo (Ctrl+Y)" aria-label="Redo" disabled={!editor.can().redo()} onMouseDown={(e) => e.preventDefault()} onClick={() => chain().redo().run()}>↷</button>
+      {children}
     </div>
   );
 }

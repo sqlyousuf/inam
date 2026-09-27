@@ -198,7 +198,10 @@ a { color: var(--accent); }
 .prose hr { border: 0; border-top: 1px solid var(--border); margin: 1.2em 0; }
 .prose a { color: var(--accent); }
 .prose img { display: block; max-width: 100%; height: auto; margin: 0.6em 0; border-radius: 4px; }
+.prose img { cursor: pointer; }
 .prose img.ProseMirror-selectednode { outline: 3px solid var(--accent); }
+.tool.image-tool { background: var(--accent-soft); color: var(--accent); }
+.tool-notice { align-self: center; margin-left: 8px; font-size: 13px; color: var(--accent); font-weight: 600; }
 .prose img[src^='blob:'] { opacity: 0.6; }
 
 /* Files */

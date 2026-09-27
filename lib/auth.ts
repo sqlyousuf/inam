@@ -3,7 +3,10 @@ import { cookies } from 'next/headers';
 import { db } from './db';
 
 const COOKIE = 'session';
-const MAX_AGE = 60 * 60 * 24 * 30; // 30 days
+// Browsers cap cookies at 400 days; the session renews itself daily while in use,
+// so you stay signed in until you sign out.
+const MAX_AGE = 60 * 60 * 24 * 400;
+const RENEW_AFTER = 60 * 60 * 24;
 
 export type User = { id: string; email: string };
 
@@ -31,16 +34,28 @@ export async function createSession(user: User) {
   });
 }
 
-export async function getUser(): Promise<User | null> {
+async function readSession() {
   const token = (await cookies()).get(COOKIE)?.value;
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, secret());
     if (!payload.sub || typeof payload.email !== 'string') return null;
-    return { id: payload.sub, email: payload.email };
+    return { user: { id: payload.sub, email: payload.email } as User, issuedAt: payload.iat ?? 0 };
   } catch {
     return null;
   }
+}
+
+export async function getUser(): Promise<User | null> {
+  return (await readSession())?.user ?? null;
+}
+
+/** Like getUser, but also renews the session once a day. Only usable in route handlers. */
+export async function getUserAndRenew(): Promise<User | null> {
+  const session = await readSession();
+  if (!session) return null;
+  if (Date.now() / 1000 - session.issuedAt > RENEW_AFTER) await createSession(session.user);
+  return session.user;
 }
 
 export async function destroySession() {
