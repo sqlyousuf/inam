@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation';
 import { getUser, signupAllowed } from '@/lib/auth';
+import { databaseUrl } from '@/lib/db';
 import AuthForm from '@/components/AuthForm';
 
 export default async function LoginPage() {
@@ -11,7 +12,15 @@ export default async function LoginPage() {
     allowSignup = await signupAllowed();
   } catch (error) {
     console.error(error);
-    setupError = 'The database is not reachable. Check DATABASE_URL and run the migration.';
+    const code = (error as { code?: string }).code;
+    if (!databaseUrl()) {
+      setupError =
+        'No database is connected. In Vercel, connect a Neon database under Storage, then redeploy.';
+    } else if (code === '42P01') {
+      setupError = 'The database tables have not been created yet. Redeploy the project to create them.';
+    } else {
+      setupError = `Could not connect to the database: ${(error as Error).message}`;
+    }
   }
 
   return <AuthForm allowSignup={allowSignup} setupError={setupError} />;

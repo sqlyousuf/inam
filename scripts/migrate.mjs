@@ -5,7 +5,9 @@ for (const file of ['.env.local', '.env']) {
   try { process.loadEnvFile(file); } catch {}
 }
 
-const url = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+const env = process.env;
+const prefixed = Object.keys(env).find((k) => /_(DATABASE_URL|POSTGRES_URL)$/.test(k) && env[k]);
+const url = env.DATABASE_URL || env.POSTGRES_URL || (prefixed && env[prefixed]);
 if (!url) {
   console.warn('[migrate] DATABASE_URL is not set - skipping database setup.');
   process.exit(0);
