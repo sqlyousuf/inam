@@ -317,6 +317,42 @@ export default function NotesApp({ user, blobAccess }: Props) {
   }
 
   // ---- Files ----
+  /** Uploads one file straight to Blob storage and records it on the page. */
+  const sendFile = useCallback(
+    async (targetId: string, file: File, inline: boolean, onProgress?: (percent: number) => void) => {
+      const pathname = `${user.id}/${targetId}/${safeFileName(file.name)}`;
+      const { clientToken } = await api<{ clientToken: string }>('/api/blob/upload', {
+        method: 'POST',
+        json: { pageId: targetId, pathname },
+      });
+      const blob = await put(pathname, file, {
+        access: blobAccess,
+        token: clientToken,
+        multipart: file.size > 10 * 1024 * 1024,
+        onUploadProgress: onProgress && (({ percentage }) => onProgress(Math.round(percentage))),
+      });
+      return api<Attachment>('/api/attachments', {
+        method: 'POST',
+        json: { pageId: targetId, pathname: blob.pathname, name: file.name, inline },
+      });
+    },
+    [user.id, blobAccess],
+  );
+
+  const uploadImage = useCallback(
+    async (file: File) => {
+      if (!pageId) throw new Error('No page is open');
+      const saved = await sendFile(pageId, file, true);
+      return `/api/attachments/${saved.id}?inline=1`;
+    },
+    [pageId, sendFile],
+  );
+
+  const imageFailed = useCallback(
+    (err: unknown) => report(new Error(`Image upload failed: ${(err as Error).message}`)),
+    [report],
+  );
+
   async function uploadFiles(files: File[]) {
     if (!page || !files.length) return;
     const targetId = page.id;
@@ -325,22 +361,9 @@ export default function NotesApp({ user, blobAccess }: Props) {
         const key = `${Date.now()}-${Math.random()}`;
         setUploads((list) => [...list, { key, name: file.name, percent: 0 }]);
         try {
-          const pathname = `${user.id}/${targetId}/${safeFileName(file.name)}`;
-          const { clientToken } = await api<{ clientToken: string }>('/api/blob/upload', {
-            method: 'POST',
-            json: { pageId: targetId, pathname },
-          });
-          const blob = await put(pathname, file, {
-            access: blobAccess,
-            token: clientToken,
-            multipart: file.size > 10 * 1024 * 1024,
-            onUploadProgress: ({ percentage }) =>
-              setUploads((list) => list.map((u) => (u.key === key ? { ...u, percent: Math.round(percentage) } : u))),
-          });
-          const saved = await api<Attachment>('/api/attachments', {
-            method: 'POST',
-            json: { pageId: targetId, pathname: blob.pathname, name: file.name },
-          });
+          const saved = await sendFile(targetId, file, false, (percent) =>
+            setUploads((list) => list.map((u) => (u.key === key ? { ...u, percent } : u))),
+          );
           setPage((p) => (p && p.id === targetId ? { ...p, attachments: [...p.attachments, saved] } : p));
         } catch (err) {
           report(new Error(`Upload of "${file.name}" failed: ${(err as Error).message}`));
@@ -507,9 +530,10 @@ export default function NotesApp({ user, blobAccess }: Props) {
             if (e.currentTarget === e.target) setDragging(false);
           }}
           onDrop={(e) => {
-            if (!page || !e.dataTransfer.files.length) return;
-            e.preventDefault();
             setDragging(false);
+            // Images dropped into the text are handled by the editor.
+            if (e.defaultPrevented || !page || !e.dataTransfer.files.length) return;
+            e.preventDefault();
             void uploadFiles(Array.from(e.dataTransfer.files));
           }}
         >
@@ -541,7 +565,13 @@ export default function NotesApp({ user, blobAccess }: Props) {
                 </div>
               </div>
 
-              <Editor key={page.id} content={page.content} onChange={changeContent} />
+              <Editor
+                key={page.id}
+                content={page.content}
+                onChange={changeContent}
+                onImageUpload={uploadImage}
+                onError={imageFailed}
+              />
 
               <section className="attachments">
                 <h3>

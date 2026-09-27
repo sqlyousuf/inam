@@ -197,6 +197,9 @@ a { color: var(--accent); }
 .prose pre code { background: none; padding: 0; }
 .prose hr { border: 0; border-top: 1px solid var(--border); margin: 1.2em 0; }
 .prose a { color: var(--accent); }
+.prose img { display: block; max-width: 100%; height: auto; margin: 0.6em 0; border-radius: 4px; }
+.prose img.ProseMirror-selectednode { outline: 3px solid var(--accent); }
+.prose img[src^='blob:'] { opacity: 0.6; }
 
 /* Files */
 .attachments { margin-top: 24px; }

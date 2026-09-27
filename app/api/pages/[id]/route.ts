@@ -15,7 +15,7 @@ export async function GET(_req: Request, { params }: Params) {
     if (!rows.length) throw new HttpError(404, 'Page not found');
     const attachments = await db()`
       select id, name, size, content_type, created_at from attachments
-      where page_id = ${id} and user_id = ${user.id} order by created_at`;
+      where page_id = ${id} and user_id = ${user.id} and not inline order by created_at`;
     return Response.json({ ...rows[0], attachments });
   });
 }

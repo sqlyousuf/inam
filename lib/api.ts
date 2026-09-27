@@ -55,6 +55,11 @@ export function blobToken() {
   return key ? env[key] : undefined;
 }
 
+/** Image types that are safe to show inside a page (SVG is excluded because it can run scripts). */
+export function isInlineImage(contentType: string) {
+  return /^image\/(png|jpeg|gif|webp|avif|bmp)$/.test(contentType);
+}
+
 export function blobAccess(): 'private' | 'public' {
   return process.env.BLOB_ACCESS === 'public' ? 'public' : 'private';
 }

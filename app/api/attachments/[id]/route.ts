@@ -1,11 +1,14 @@
 import { get } from '@vercel/blob';
 import { db } from '@/lib/db';
-import { HttpError, blobAccess, blobToken, deleteBlobs, requireUser, run, uuid } from '@/lib/api';
+import { HttpError, blobAccess, blobToken, deleteBlobs, isInlineImage, requireUser, run, uuid } from '@/lib/api';
 
 type Params = { params: Promise<{ id: string }> };
 
-/** Downloads a file. Only the owner can fetch it; the storage URL is never exposed. */
-export async function GET(_req: Request, { params }: Params) {
+/**
+ * Downloads a file. Only the owner can fetch it; the storage URL is never exposed.
+ * With ?inline=1, images are served for display inside a page.
+ */
+export async function GET(req: Request, { params }: Params) {
   return run(async () => {
     const user = await requireUser();
     const id = uuid((await params).id);
@@ -17,15 +20,17 @@ export async function GET(_req: Request, { params }: Params) {
     const result = await get(file.blob_url, { access: blobAccess(), token: blobToken() });
     if (!result || result.statusCode !== 200) throw new HttpError(404, 'File is missing from storage');
 
+    const inline = new URL(req.url).searchParams.get('inline') === '1' && isInlineImage(file.content_type);
     const encoded = encodeURIComponent(file.name);
     const ascii = file.name.replace(/[^\x20-\x7e]|["\\]/g, '_');
     return new Response(result.stream, {
       headers: {
-        'Content-Type': 'application/octet-stream',
+        'Content-Type': inline ? file.content_type : 'application/octet-stream',
         'Content-Length': String(result.blob.size),
-        'Content-Disposition': `attachment; filename="${ascii}"; filename*=UTF-8''${encoded}`,
+        'Content-Disposition': `${inline ? 'inline' : 'attachment'}; filename="${ascii}"; filename*=UTF-8''${encoded}`,
         'X-Content-Type-Options': 'nosniff',
-        'Cache-Control': 'private, no-store',
+        // Stored files never change, so the browser may keep images it has already shown.
+        'Cache-Control': inline ? 'private, max-age=31536000, immutable' : 'private, no-store',
       },
     });
   });

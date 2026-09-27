@@ -1,6 +1,6 @@
 import { head } from '@vercel/blob';
 import { db } from '@/lib/db';
-import { HttpError, blobToken, cleanName, readJson, requireUser, run, uuid } from '@/lib/api';
+import { HttpError, blobToken, cleanName, isInlineImage, readJson, requireUser, run, uuid } from '@/lib/api';
 
 /** Records a file that the browser has just uploaded to Vercel Blob. */
 export async function POST(req: Request) {
@@ -17,10 +17,14 @@ export async function POST(req: Request) {
     });
     if (!blob) throw new HttpError(400, 'Uploaded file not found');
 
+    const contentType = blob.contentType || 'application/octet-stream';
+    const inline = body.inline === true;
+    if (inline && !isInlineImage(contentType)) throw new HttpError(400, 'Only images can be pasted into a page');
+
     const rows = await db()`
-      insert into attachments (page_id, user_id, name, size, content_type, blob_url, pathname)
+      insert into attachments (page_id, user_id, name, size, content_type, blob_url, pathname, inline)
       select id, user_id, ${cleanName(body.name, 'file')}, ${blob.size},
-             ${blob.contentType || 'application/octet-stream'}, ${blob.url}, ${blob.pathname}
+             ${contentType}, ${blob.url}, ${blob.pathname}, ${inline}
       from pages where id = ${pageId} and user_id = ${user.id}
       returning id, name, size, content_type, created_at`;
     if (!rows.length) throw new HttpError(404, 'Page not found');

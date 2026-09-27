@@ -55,6 +55,8 @@ const statements = [
     pathname text not null,
     created_at timestamptz not null default now()
   )`,
+  // Images pasted into a page are stored like files but not listed under Files.
+  `alter table attachments add column if not exists inline boolean not null default false`,
   `create index if not exists notebooks_user_idx on notebooks(user_id)`,
   `create index if not exists sections_notebook_idx on sections(notebook_id)`,
   `create index if not exists pages_section_idx on pages(section_id)`,
