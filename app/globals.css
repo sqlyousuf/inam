@@ -203,6 +203,13 @@ a { color: var(--accent); }
 .tool.image-tool { background: var(--accent-soft); color: var(--accent); }
 .tool-notice { align-self: center; margin-left: 8px; font-size: 13px; color: var(--accent); font-weight: 600; }
 .prose img[src^='blob:'] { opacity: 0.6; }
+.prose .tableWrapper { overflow-x: auto; margin: 0 0 0.8em; }
+.prose table { border-collapse: collapse; table-layout: auto; min-width: 100%; }
+.prose th, .prose td { border: 1px solid var(--border); padding: 6px 10px; vertical-align: top; text-align: left; min-width: 60px; position: relative; }
+.prose th { background: var(--surface-2); font-weight: 600; }
+.prose td > p, .prose th > p { margin: 0; }
+.prose .selectedCell::after { content: ''; position: absolute; inset: 0; background: color-mix(in srgb, var(--accent) 18%, transparent); pointer-events: none; }
+.tool.table-tool { background: var(--accent-soft); color: var(--accent); }
 
 /* Files */
 .attachments { margin-top: 24px; }

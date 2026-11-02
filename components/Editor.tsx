@@ -4,6 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { EditorContent, useEditor, type Editor as TiptapEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Image from '@tiptap/extension-image';
+import { TableKit } from '@tiptap/extension-table';
+import type { Node as PMNode, Slice } from '@tiptap/pm/model';
 import { NodeSelection, type EditorState } from '@tiptap/pm/state';
 import type { EditorView } from '@tiptap/pm/view';
 
@@ -17,6 +19,47 @@ type Props = {
 
 function imageFiles(data: DataTransfer | null) {
   return Array.from(data?.files ?? []).filter((file) => file.type.startsWith('image/'));
+}
+
+/** Excel and Word also put a picture of the copied cells on the clipboard; the table itself should win. */
+function hasTable(data: DataTransfer | null) {
+  return /<table[\s>]/i.test(data?.getData('text/html') ?? '');
+}
+
+/** Cell text with line breaks flattened, since a newline would start a new spreadsheet row. */
+function cellText(cell: PMNode) {
+  const text: string[] = [];
+  cell.forEach((block) => text.push(block.textContent));
+  return text.join(' ').replace(/[\t\r\n]+/g, ' ');
+}
+
+/** Plain-text copy: tables become tab-separated rows, which paste into separate cells in Excel and Sheets. */
+function clipboardText(slice: Slice) {
+  const blocks: string[] = [];
+  const rows: string[] = [];
+  const flushRows = () => {
+    if (rows.length) blocks.push(rows.splice(0).join('\n'));
+  };
+  const visit = (node: PMNode) => {
+    if (node.type.name === 'tableRow') {
+      const cells: string[] = [];
+      node.forEach((cell) => cells.push(cellText(cell)));
+      rows.push(cells.join('\t'));
+      return;
+    }
+    flushRows();
+    if (node.type.name === 'table') {
+      node.forEach(visit);
+      flushRows();
+    } else if (node.isTextblock || node.isText) {
+      blocks.push(node.textContent);
+    } else if (!node.isLeaf) {
+      node.forEach(visit);
+    }
+  };
+  slice.content.forEach(visit);
+  flushRows();
+  return blocks.join('\n\n');
 }
 
 /** Points images with the temporary src at their uploaded URL, or removes them when `to` is null. */
@@ -115,15 +158,16 @@ export default function Editor({ content, onChange, onImageUpload, onError }: Pr
   }
 
   const editor = useEditor({
-    extensions: [StarterKit, Image.configure({ allowBase64: false })],
+    extensions: [StarterKit, Image.configure({ allowBase64: false }), TableKit.configure({ table: { resizable: false } })],
     content,
     immediatelyRender: false,
     shouldRerenderOnTransaction: true,
     editorProps: {
       attributes: { class: 'prose' },
+      clipboardTextSerializer: clipboardText,
       handlePaste: (view, event) => {
         const files = imageFiles(event.clipboardData);
-        if (!files.length) return false;
+        if (!files.length || hasTable(event.clipboardData)) return false;
         event.preventDefault();
         insertImages(view, files);
         return true;
@@ -156,10 +200,28 @@ export default function Editor({ content, onChange, onImageUpload, onError }: Pr
 
   if (!editor) return <div className="editor-loading" />;
   const image = selectedImage(editor.state);
+  const tableTools: { label: string; title: string; run: () => void }[] = [
+    { label: '+ Row', title: 'Add row below', run: () => editor.chain().focus().addRowAfter().run() },
+    { label: '+ Column', title: 'Add column to the right', run: () => editor.chain().focus().addColumnAfter().run() },
+    { label: '− Row', title: 'Delete row', run: () => editor.chain().focus().deleteRow().run() },
+    { label: '− Column', title: 'Delete column', run: () => editor.chain().focus().deleteColumn().run() },
+    { label: 'Header row', title: 'Toggle header row', run: () => editor.chain().focus().toggleHeaderRow().run() },
+    { label: 'Delete table', title: 'Delete table', run: () => editor.chain().focus().deleteTable().run() },
+  ];
 
   return (
     <div className="editor">
       <Toolbar editor={editor}>
+        {editor.isActive('table') && (
+          <>
+            <span className="tool-sep" />
+            {tableTools.map((t) => (
+              <button key={t.title} type="button" className="tool table-tool" title={t.title} onMouseDown={(e) => e.preventDefault()} onClick={t.run}>
+                {t.label}
+              </button>
+            ))}
+          </>
+        )}
         {image && (
           <>
             <span className="tool-sep" />
@@ -193,6 +255,7 @@ function Toolbar({ editor, children }: { editor: TiptapEditor; children?: React.
     { label: '❝', title: 'Quote', active: editor.isActive('blockquote'), run: () => chain().toggleBlockquote().run() },
     { label: '</>', title: 'Code block', active: editor.isActive('codeBlock'), run: () => chain().toggleCodeBlock().run() },
     { label: '―', title: 'Divider', run: () => chain().setHorizontalRule().run() },
+    { label: '▦ Table', title: 'Insert table', active: editor.isActive('table'), run: () => chain().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run() },
   ];
 
   return (
